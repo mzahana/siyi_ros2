@@ -1,10 +1,14 @@
 siyi_camera_node:
   ros__parameters:
     rtsp_url: ""               # if empty, auto-built from host + camera_model
-    camera_model: "zt30"       # zt30 | zt6 | zr30 | zr10 | a8 | a2 | r1m
+    camera_model: "a8"         # zt30 | zt6 | zr30 | zr10 | a8 | a2 | r1m
     host: "192.168.144.25"
     stream_index: 0
     backend: "gstreamer"       # gstreamer | opencv | aiortsp | auto
     image_encoding: "bgr8"
-    publish_compressed: true
+    publish_raw: true          # publish raw sensor_msgs/Image (BEST_EFFORT QoS)
+    publish_compressed: true   # publish sensor_msgs/CompressedImage (separate thread)
+    image_scale: 1.0           # scaling factor (0.1 to 1.0) to reduce resolution
+    jpeg_quality: 80           # JPEG quality for compressed topic (1-100)
+    latency_ms: 0              # GStreamer rtspsrc latency buffer; 0 = lowest latency
     frame_id: "siyi_camera"

@@ -73,6 +73,26 @@ ros2 launch siyi_ros2 siyi.launch.py transport:=serial serial_device:=/dev/ttyUS
 
 ---
 
+## Logging
+
+By default the launch files suppress verbose SDK and GStreamer debug output so the
+terminal only shows warnings and errors. Three environment variables control this:
+
+| Variable | Default (in launch) | Effect |
+|----------|---------------------|--------|
+| `SIYI_LOG_LEVEL` | `WARNING` | SDK log level (`DEBUG` / `INFO` / `WARNING` / `ERROR`) |
+| `SIYI_PROTOCOL_TRACE` | `0` | Set to `1` to log raw UDP frame hex dumps at DEBUG level |
+| `GST_DEBUG` | `0` | GStreamer log verbosity (0 = silent, 3 = info, 5 = debug) |
+
+To enable full protocol tracing for debugging:
+
+```bash
+SIYI_LOG_LEVEL=DEBUG SIYI_PROTOCOL_TRACE=1 GST_DEBUG=2 \
+    ros2 launch siyi_ros2 siyi_full.launch.py host:=192.168.144.25 camera_model:=a8
+```
+
+---
+
 ## Published Topics
 
 | Topic | Type | Description |

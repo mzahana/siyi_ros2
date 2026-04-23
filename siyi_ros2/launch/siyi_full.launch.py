@@ -5,6 +5,7 @@ from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
+from launch.actions import SetEnvironmentVariable
 
 
 def generate_launch_description():
@@ -22,7 +23,11 @@ def generate_launch_description():
         DeclareLaunchArgument("stream_index", default_value="0"),
         DeclareLaunchArgument("backend", default_value="gstreamer",
                               description="Video backend: gstreamer | opencv | aiortsp"),
+        DeclareLaunchArgument("publish_raw", default_value="true"),
         DeclareLaunchArgument("publish_compressed", default_value="true"),
+        DeclareLaunchArgument("image_scale", default_value="1.0"),
+        DeclareLaunchArgument("jpeg_quality", default_value="80"),
+        DeclareLaunchArgument("latency_ms", default_value="0"),
         DeclareLaunchArgument("namespace", default_value=""),
     ]
 
@@ -60,11 +65,20 @@ def generate_launch_description():
                 "camera_model": LaunchConfiguration("camera_model"),
                 "stream_index": LaunchConfiguration("stream_index"),
                 "backend": LaunchConfiguration("backend"),
+                "publish_raw": LaunchConfiguration("publish_raw"),
                 "publish_compressed": LaunchConfiguration("publish_compressed"),
+                "image_scale": LaunchConfiguration("image_scale"),
+                "jpeg_quality": LaunchConfiguration("jpeg_quality"),
+                "latency_ms": LaunchConfiguration("latency_ms"),
             },
         ],
         output="screen",
         emulate_tty=True,
+        arguments=["--ros-args", "--log-level", "warn"],
     )
 
-    return LaunchDescription(args + [siyi_node, camera_node])
+    suppress_gst_log = SetEnvironmentVariable("GST_DEBUG", "0")
+    suppress_sdk_log = SetEnvironmentVariable("SIYI_LOG_LEVEL", "WARNING")
+    suppress_trace = SetEnvironmentVariable("SIYI_PROTOCOL_TRACE", "0")
+
+    return LaunchDescription(args + [suppress_gst_log, suppress_sdk_log, suppress_trace, siyi_node, camera_node])

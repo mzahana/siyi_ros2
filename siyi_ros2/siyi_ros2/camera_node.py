@@ -10,8 +10,10 @@ import cv2
 import numpy as np
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy
 from sensor_msgs.msg import Image, CameraInfo, CompressedImage
 
+from siyi_sdk import configure_logging
 from siyi_sdk.stream import SIYIStream, build_rtsp_url
 from siyi_sdk.stream.models import (
     StreamConfig,
@@ -21,12 +23,19 @@ from siyi_sdk.stream.models import (
     StreamFrame,
 )
 
-# Lazy import cv_bridge so that import errors surface at runtime with a clear message.
 try:
     from cv_bridge import CvBridge
     _CV_BRIDGE_AVAILABLE = True
 except Exception:
     _CV_BRIDGE_AVAILABLE = False
+
+# BEST_EFFORT: publisher never blocks waiting for subscriber ACKs — critical for
+# high-frequency large image messages where DDS backpressure kills throughput.
+_IMAGE_QOS = QoSProfile(
+    reliability=QoSReliabilityPolicy.BEST_EFFORT,
+    history=QoSHistoryPolicy.KEEP_LAST,
+    depth=1,
+)
 
 
 class SIYICameraNode(Node):
@@ -38,14 +47,18 @@ class SIYICameraNode(Node):
         /siyi/image_compressed    (sensor_msgs/CompressedImage, optional)
 
     Parameters:
-        rtsp_url        (str)  Override RTSP URL; auto-built when empty.
-        camera_model    (str)  One of: zt30, zt6, zr30, zr10, a8, a2, r1m.
-        host            (str)  Camera IP address.
-        stream_index    (int)  0 = main stream, 1 = sub stream.
-        backend         (str)  gstreamer / opencv / aiortsp / auto.
-        image_encoding  (str)  ROS2 image encoding (e.g. bgr8, rgb8).
+        rtsp_url        (str)   Override RTSP URL; auto-built when empty.
+        camera_model    (str)   One of: zt30, zt6, zr30, zr10, a8, a2, r1m.
+        host            (str)   Camera IP address.
+        stream_index    (int)   0 = main stream, 1 = sub stream.
+        backend         (str)   gstreamer / opencv / aiortsp / auto.
+        image_encoding  (str)   ROS2 image encoding (e.g. bgr8, rgb8).
+        publish_raw     (bool)  Publish raw sensor_msgs/Image topic.
         publish_compressed (bool) Publish CompressedImage topic.
-        frame_id        (str)  TF frame ID stamped on all messages.
+        image_scale     (float) Scaling factor (0.1–1.0) applied before publish.
+        jpeg_quality    (int)   JPEG quality for compressed topic (1–100).
+        latency_ms      (int)   GStreamer rtspsrc latency buffer in ms (0 = lowest).
+        frame_id        (str)   TF frame ID stamped on all messages.
     """
 
     def __init__(self) -> None:
@@ -62,7 +75,6 @@ class SIYICameraNode(Node):
         self._stream: Optional[SIYIStream] = None
         self._unsub = None
 
-        # Dedicated asyncio event loop for SIYIStream (runs in its own thread).
         self._loop = asyncio.new_event_loop()
         self._thread = threading.Thread(
             target=self._run_loop, name="siyi_stream_asyncio", daemon=True
@@ -70,7 +82,40 @@ class SIYICameraNode(Node):
         self._thread.start()
 
         self._declare_parameters()
+
+        # Cache hot-path parameters to avoid per-frame ROS2 parameter lookups.
+        self._encoding: str = self.get_parameter("image_encoding").value
+        self._frame_id: str = self.get_parameter("frame_id").value
+        self._scale: float = self.get_parameter("image_scale").value
+        self._jpeg_quality: int = self.get_parameter("jpeg_quality").value
+
+        # Raw/CameraInfo publish pipeline.
+        self._latest_frame: Optional[tuple[np.ndarray, rclpy.time.Time]] = None
+        self._raw_lock = threading.Lock()
+        self._raw_event = threading.Event()
+        self._stop_event = threading.Event()
+
+        # Compressed publish pipeline — separate thread so JPEG encoding never
+        # blocks the raw publish loop.
+        self._comp_frame: Optional[tuple[np.ndarray, rclpy.time.Time]] = None
+        self._comp_lock = threading.Lock()
+        self._comp_event = threading.Event()
+
         self._setup_publishers()
+
+        self._raw_thread = threading.Thread(
+            target=self._raw_worker, name="siyi_raw_publisher", daemon=True
+        )
+        self._raw_thread.start()
+
+        if self.get_parameter("publish_compressed").value:
+            self._comp_thread: Optional[threading.Thread] = threading.Thread(
+                target=self._comp_worker, name="siyi_comp_publisher", daemon=True
+            )
+            self._comp_thread.start()
+        else:
+            self._comp_thread = None
+
         self._start_stream()
 
     # ------------------------------------------------------------------
@@ -88,11 +133,14 @@ class SIYICameraNode(Node):
         self.declare_parameter("stream_index", 0)
         self.declare_parameter("backend", "gstreamer")
         self.declare_parameter("image_encoding", "bgr8")
+        self.declare_parameter("publish_raw", True)
         self.declare_parameter("publish_compressed", True)
+        self.declare_parameter("image_scale", 1.0)
+        self.declare_parameter("jpeg_quality", 80)
+        self.declare_parameter("latency_ms", 0)
         self.declare_parameter("frame_id", "siyi_camera")
 
     def _build_rtsp_url(self) -> str:
-        """Return RTSP URL from parameter or auto-construct from model/host/stream_index."""
         rtsp_url = self.get_parameter("rtsp_url").value
         if rtsp_url:
             return rtsp_url
@@ -106,11 +154,16 @@ class SIYICameraNode(Node):
         return build_rtsp_url(host=host, stream=stream_slot, generation=gen)
 
     def _setup_publishers(self) -> None:
-        self._image_pub = self.create_publisher(Image, "/siyi/image_raw", 1)
-        self._info_pub = self.create_publisher(CameraInfo, "/siyi/camera_info", 1)
+        if self.get_parameter("publish_raw").value:
+            self._image_pub = self.create_publisher(Image, "/siyi/image_raw", _IMAGE_QOS)
+        else:
+            self._image_pub = None
+
+        self._info_pub = self.create_publisher(CameraInfo, "/siyi/camera_info", _IMAGE_QOS)
+
         if self.get_parameter("publish_compressed").value:
             self._compressed_pub = self.create_publisher(
-                CompressedImage, "/siyi/image_compressed", 1
+                CompressedImage, "/siyi/image_compressed", _IMAGE_QOS
             )
         else:
             self._compressed_pub = None
@@ -118,6 +171,7 @@ class SIYICameraNode(Node):
     def _start_stream(self) -> None:
         url = self._build_rtsp_url()
         backend_str = self.get_parameter("backend").value
+        latency_ms = self.get_parameter("latency_ms").value
 
         backend_map: dict[str, StreamBackend] = {
             "gstreamer": StreamBackend.GSTREAMER,
@@ -127,61 +181,113 @@ class SIYICameraNode(Node):
         }
         backend = backend_map.get(backend_str, StreamBackend.GSTREAMER)
 
-        config = StreamConfig(rtsp_url=url, backend=backend)
+        config = StreamConfig(rtsp_url=url, backend=backend, latency_ms=latency_ms)
         self._stream = SIYIStream(config)
         self._unsub = self._stream.on_frame(self._on_frame)
 
         asyncio.run_coroutine_threadsafe(self._stream.start(), self._loop)
         self.get_logger().info(
-            f"SIYI camera stream started: {url} [backend={backend_str}]"
+            f"SIYI camera stream started: {url} [backend={backend_str}, latency_ms={latency_ms}]"
         )
 
     # ------------------------------------------------------------------
-    # Frame callback — called from asyncio thread via SIYIStream dispatch
+    # Frame callback — called from asyncio thread; must be fast/non-blocking
     # ------------------------------------------------------------------
 
     def _on_frame(self, frame: StreamFrame) -> None:
-        """Handle a decoded video frame and publish ROS2 messages."""
-        img_array: np.ndarray = frame.frame
-        if img_array is None or img_array.size == 0:
+        """Buffer the raw frame for the publish workers. No CPU work here."""
+        img: np.ndarray = frame.frame
+        if img is None or img.size == 0:
             return
 
-        stamp = self.get_clock().now().to_msg()
-        frame_id: str = self.get_parameter("frame_id").value
-        encoding: str = self.get_parameter("image_encoding").value
+        stamp = self.get_clock().now()
 
-        # --- sensor_msgs/Image ---
-        try:
-            if self._bridge_cv is not None:
-                img_msg = self._bridge_cv.cv2_to_imgmsg(img_array, encoding=encoding)
-            else:
-                img_msg = self._numpy_to_imgmsg(img_array, encoding)
-            img_msg.header.stamp = stamp
-            img_msg.header.frame_id = frame_id
-            self._image_pub.publish(img_msg)
-        except Exception as exc:
-            self.get_logger().warning(
-                f"Image publish error: {exc}", throttle_duration_sec=5.0
-            )
+        with self._raw_lock:
+            self._latest_frame = (img, stamp)
+            self._raw_event.set()
 
-        # --- sensor_msgs/CameraInfo (minimal, no calibration) ---
-        info = CameraInfo()
-        info.header.stamp = stamp
-        info.header.frame_id = frame_id
-        info.width = img_array.shape[1]
-        info.height = img_array.shape[0]
-        self._info_pub.publish(info)
+    # ------------------------------------------------------------------
+    # Raw + CameraInfo publisher worker
+    # ------------------------------------------------------------------
 
-        # --- sensor_msgs/CompressedImage ---
-        if self._compressed_pub is not None:
+    def _raw_worker(self) -> None:
+        """Publishes raw Image and CameraInfo. Resize happens here, off asyncio."""
+        while rclpy.ok() and not self._stop_event.is_set():
+            if not self._raw_event.wait(timeout=0.1):
+                continue
+            self._raw_event.clear()
+
+            with self._raw_lock:
+                if self._latest_frame is None:
+                    continue
+                img, stamp = self._latest_frame
+                self._latest_frame = None
+
+            # Resize off the asyncio thread.
+            scale = self._scale
+            if scale != 1.0:
+                w = int(img.shape[1] * scale)
+                h = int(img.shape[0] * scale)
+                img = cv2.resize(img, (w, h), interpolation=cv2.INTER_LINEAR)
+
+            # Dispatch compressed encoding to its own thread before publishing raw
+            # so both proceed in parallel.
+            if self._compressed_pub is not None:
+                with self._comp_lock:
+                    self._comp_frame = (img, stamp)
+                    self._comp_event.set()
+
+            # --- sensor_msgs/Image ---
+            if self._image_pub is not None:
+                try:
+                    encoding = self._encoding
+                    if self._bridge_cv is not None:
+                        img_msg = self._bridge_cv.cv2_to_imgmsg(img, encoding=encoding)
+                    else:
+                        img_msg = self._numpy_to_imgmsg(img, encoding)
+                    img_msg.header.stamp = stamp.to_msg()
+                    img_msg.header.frame_id = self._frame_id
+                    self._image_pub.publish(img_msg)
+                except Exception as exc:
+                    self.get_logger().warning(
+                        f"Image publish error: {exc}", throttle_duration_sec=5.0
+                    )
+
+            # --- sensor_msgs/CameraInfo ---
+            info = CameraInfo()
+            info.header.stamp = stamp.to_msg()
+            info.header.frame_id = self._frame_id
+            info.width = img.shape[1]
+            info.height = img.shape[0]
+            self._info_pub.publish(info)
+
+    # ------------------------------------------------------------------
+    # Compressed publisher worker — JPEG encoding never blocks raw publish
+    # ------------------------------------------------------------------
+
+    def _comp_worker(self) -> None:
+        """Encodes and publishes CompressedImage independently of raw publish."""
+        encode_params = [cv2.IMWRITE_JPEG_QUALITY, self._jpeg_quality]
+        while rclpy.ok() and not self._stop_event.is_set():
+            if not self._comp_event.wait(timeout=0.1):
+                continue
+            self._comp_event.clear()
+
+            with self._comp_lock:
+                if self._comp_frame is None:
+                    continue
+                img, stamp = self._comp_frame
+                self._comp_frame = None
+
+            if self._compressed_pub is None:
+                continue
+
             try:
-                ok, buf = cv2.imencode(
-                    ".jpg", img_array, [cv2.IMWRITE_JPEG_QUALITY, 85]
-                )
+                ok, buf = cv2.imencode(".jpg", img, encode_params)
                 if ok:
                     comp = CompressedImage()
-                    comp.header.stamp = stamp
-                    comp.header.frame_id = frame_id
+                    comp.header.stamp = stamp.to_msg()
+                    comp.header.frame_id = self._frame_id
                     comp.format = "jpeg"
                     comp.data = buf.tobytes()
                     self._compressed_pub.publish(comp)
@@ -196,7 +302,6 @@ class SIYICameraNode(Node):
 
     @staticmethod
     def _numpy_to_imgmsg(arr: np.ndarray, encoding: str) -> Image:
-        """Convert a numpy BGR array to sensor_msgs/Image without cv_bridge."""
         msg = Image()
         msg.height = arr.shape[0]
         msg.width = arr.shape[1]
@@ -226,11 +331,18 @@ class SIYICameraNode(Node):
         if self._loop.is_running():
             self._loop.call_soon_threadsafe(self._loop.stop)
 
+        self._stop_event.set()
+        self._raw_event.set()
+        self._comp_event.set()
+        self._raw_thread.join(timeout=2.0)
+        if self._comp_thread is not None:
+            self._comp_thread.join(timeout=2.0)
         self._thread.join(timeout=5.0)
         super().destroy_node()
 
 
 def main(args=None) -> None:
+    configure_logging()
     rclpy.init(args=args)
     node = SIYICameraNode()
     try:

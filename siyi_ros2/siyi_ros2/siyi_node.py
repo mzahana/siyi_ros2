@@ -5,7 +5,7 @@ from __future__ import annotations
 import rclpy
 from rclpy.node import Node
 
-from siyi_sdk import SIYIClient, connect_serial, connect_tcp, connect_udp
+from siyi_sdk import SIYIClient, configure_logging, connect_serial, connect_tcp, connect_udp
 from siyi_sdk.models import DataStreamFreq, GimbalDataType
 
 from siyi_ros2._async_bridge import AsyncBridge
@@ -185,6 +185,7 @@ class SIYINode(Node):
 
 
 def main(args=None) -> None:
+    configure_logging()
     rclpy.init(args=args)
     node = SIYINode()
     try:

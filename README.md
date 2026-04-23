@@ -24,29 +24,43 @@ the full SIYI command set as ROS2 topics, services, and a video streaming node.
 |-------------|---------|
 | ROS2 | Jazzy |
 | Python | ≥ 3.10 |
-| siyi_sdk | installed from `~/src/siyi_sdk` |
+| **siyi_sdk** | **must be cloned and installed — see below** |
 | GStreamer (optional) | for video streaming |
 
 ---
 
 ## Installation
 
+### Step 1 — Clone and install siyi_sdk (required)
+
+> **This package depends on [`siyi_sdk`](https://github.com/mzahana/siyi_sdk) — you must clone it first.**
+> It is not available on PyPI and will not be installed automatically.
+
 ```bash
-# 1. Install siyi_sdk
+git clone https://github.com/mzahana/siyi_sdk.git ~/src/siyi_sdk
 pip install -e ~/src/siyi_sdk
+```
 
-# 2. Clone both packages into your workspace
+### Step 2 — Clone the ROS2 packages
+
+```bash
 cd ~/ros2_ws/src
-git clone git@github.com:mzahana/siyi_msgs.git
-git clone git@github.com:mzahana/siyi_ros2.git
+git clone https://github.com/mzahana/siyi_msgs.git
+git clone https://github.com/mzahana/siyi_ros2.git
+```
 
-# 3. Build
+### Step 3 — Build
+
+```bash
 source /opt/ros/jazzy/setup.bash
 cd ~/ros2_ws
 colcon build --packages-select siyi_msgs siyi_ros2 --symlink-install
+```
 
-# 4. Source
-source install/setup.bash
+### Step 4 — Source
+
+```bash
+source ~/ros2_ws/install/setup.bash
 ```
 
 ---

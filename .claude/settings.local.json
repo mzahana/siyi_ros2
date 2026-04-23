@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(sudo apt-get *)",
+      "Bash(python3 -c \"import em; print\\('found'\\)\")",
+      "Bash(apt-cache search *)",
+      "Bash(dpkg -l)",
+      "Bash(python3 -c \"import sys; print\\(sys.path\\)\")",
+      "Bash(python3 *)",
+      "Bash(/home/mabdelkader/venv/siyi/bin/pip uninstall *)",
+      "Bash(apt-cache show *)",
+      "Bash(/usr/bin/python3 -c \"import siyi_sdk\")",
+      "Bash(echo \"exit: $?\")",
+      "Bash(/usr/bin/python3 -c \"import sys; sys.path.insert\\(0, '/home/mabdelkader/src/siyi_sdk'\\); import siyi_sdk; print\\('ok', siyi_sdk.__file__\\)\")",
+      "Bash(/usr/bin/python3 -m pip install --break-system-packages structlog pyserial-asyncio)",
+      "Bash(apt list *)",
+      "Bash(dpkg -l python3-structlog)",
+      "Bash(sudo -S apt-get install -y python3-pip python3-structlog)",
+      "Bash(sudo -S pip3 install --break-system-packages pyserial-asyncio)",
+      "Bash(git init *)",
+      "Bash(git remote *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git branch *)"
+    ]
+  }
+}

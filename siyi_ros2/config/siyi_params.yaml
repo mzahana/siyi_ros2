@@ -1,0 +1,10 @@
+siyi_node:
+  ros__parameters:
+    host: "192.168.144.25"
+    port: 37260
+    transport: "udp"          # udp | tcp | serial
+    serial_device: "/dev/ttyUSB0"
+    baud_rate: 115200
+    timeout: 2.0
+    auto_reconnect: false
+    attitude_stream_hz: 10

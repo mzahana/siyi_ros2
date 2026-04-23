@@ -1,0 +1,10 @@
+siyi_camera_node:
+  ros__parameters:
+    rtsp_url: ""               # if empty, auto-built from host + camera_model
+    camera_model: "zt30"       # zt30 | zt6 | zr30 | zr10 | a8 | a2 | r1m
+    host: "192.168.144.25"
+    stream_index: 0
+    backend: "gstreamer"       # gstreamer | opencv | aiortsp | auto
+    image_encoding: "bgr8"
+    publish_compressed: true
+    frame_id: "siyi_camera"

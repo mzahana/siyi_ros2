@@ -2,7 +2,7 @@
 
 ROS2 Jazzy package for SIYI gimbal-camera systems (ZT30, ZT6, ZR30, ZR10, A8 Mini, A2 Mini).
 
-Wraps the [`siyi_sdk`](https://github.com/mabdelkader/siyi_sdk) Python library to expose
+Wraps the [`siyi_sdk`](https://github.com/mzahana/siyi_sdk) Python library to expose
 the full SIYI command set as ROS2 topics, services, and a video streaming node.
 
 ---
@@ -35,9 +35,10 @@ the full SIYI command set as ROS2 topics, services, and a video streaming node.
 # 1. Install siyi_sdk
 pip install -e ~/src/siyi_sdk
 
-# 2. Clone / copy this repo into your workspace
+# 2. Clone both packages into your workspace
 cd ~/ros2_ws/src
-# (already here)
+git clone git@github.com:mzahana/siyi_msgs.git
+git clone git@github.com:mzahana/siyi_ros2.git
 
 # 3. Build
 source /opt/ros/jazzy/setup.bash
@@ -135,7 +136,6 @@ ros2 launch siyi_ros2 siyi.launch.py transport:=serial serial_device:=/dev/ttyUS
 | `timeout` | double | `2.0` | Command timeout (s) |
 | `auto_reconnect` | bool | `false` | Reconnect on failure |
 | `attitude_stream_hz` | int | `10` | Attitude publish rate |
-| `laser_stream_hz` | int | `5` | Laser publish rate |
 
 ### siyi_camera_node
 
@@ -145,7 +145,7 @@ ros2 launch siyi_ros2 siyi.launch.py transport:=serial serial_device:=/dev/ttyUS
 | `camera_model` | string | `zt30` | Model key for URL generation |
 | `host` | string | `192.168.144.25` | Camera IP address |
 | `stream_index` | int | `0` | Stream index (0=main, 1=sub) |
-| `backend` | string | `gstreamer` | `gstreamer` / `opencv` / `aiortsp` |
+| `backend` | string | `gstreamer` | `gstreamer` / `opencv` / `aiortsp` / `auto` |
 | `image_encoding` | string | `bgr8` | ROS2 image encoding |
 | `publish_compressed` | bool | `true` | Publish CompressedImage topic |
 | `frame_id` | string | `siyi_camera` | Camera frame in TF tree |
@@ -177,13 +177,10 @@ ros2 run rqt_image_view rqt_image_view /siyi/image_raw
 
 ---
 
-## Package Structure
+## Related Package
 
-```
-siyi_ros2/          ← repo root
-├── siyi_msgs/      ← custom message & service definitions
-└── siyi_ros2/      ← Python ROS2 nodes
-```
+Custom message and service definitions live in a companion package:
+[`siyi_msgs`](https://github.com/mzahana/siyi_msgs) — clone it alongside this package into your workspace `src/`.
 
 ---
 

@@ -31,19 +31,50 @@ the full SIYI command set as ROS2 topics, services, and a video streaming node.
 
 ## Installation
 
+### Ubuntu 24.04 — Virtual Environment Setup (required)
+
+Ubuntu 24.04 enforces PEP 668 which prevents pip from installing packages system-wide.
+Create a virtual environment to avoid the `externally-managed-environment` error:
+
+```bash
+# Create venv
+python3 -m venv ~/ros2_ws/venv
+
+# Source ROS2 first, then activate venv (order matters)
+source /opt/ros/jazzy/setup.bash
+source ~/ros2_ws/venv/bin/activate
+```
+
+**Save this to `~/ros2_ws/setup_env.sh` for convenience:**
+
+```bash
+#!/bin/bash
+source /opt/ros/jazzy/setup.bash
+source ~/ros2_ws/venv/bin/activate
+source ~/ros2_ws/install/setup.bash
+```
+
+Then in each terminal, just run:
+
+```bash
+source ~/ros2_ws/setup_env.sh
+```
+
 ### Step 1 — Clone and install siyi_sdk (required)
 
 > **This package depends on [`siyi_sdk`](https://github.com/mzahana/siyi_sdk) — you must clone it first.**
 > It is not available on PyPI and will not be installed automatically.
 
 ```bash
-git clone https://github.com/mzahana/siyi_sdk.git ~/src/siyi_sdk
+mkdir -p ~/src/siyi_sdk
+git clone -b siyi-sdk-v2 https://github.com/mzahana/siyi_sdk.git ~/src/siyi_sdk
 pip install -e ~/src/siyi_sdk
 ```
 
 ### Step 2 — Clone the ROS2 packages
 
 ```bash
+mkdir -p ~/ros2_ws/src
 cd ~/ros2_ws/src
 git clone https://github.com/mzahana/siyi_msgs.git
 git clone https://github.com/mzahana/siyi_ros2.git

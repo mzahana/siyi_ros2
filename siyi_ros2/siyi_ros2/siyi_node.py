@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import rclpy
+from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 
 from siyi_sdk import SIYIClient, configure_logging, connect_serial, connect_tcp, connect_udp
 from siyi_sdk.models import DataStreamFreq, GimbalDataType
 
 from siyi_ros2._async_bridge import AsyncBridge
+from siyi_ros2.state import BodyRate, GimbalState
 
 # Mapping from integer Hz to DataStreamFreq enum members.
 _HZ_MAP: dict[int, DataStreamFreq] = {
@@ -30,11 +32,15 @@ class SIYINode(Node):
         self._bridge = AsyncBridge()
         self._client: SIYIClient | None = None
 
+        # Shared state for command subscribers (limit clamping + feedforward).
+        self._gimbal_state = GimbalState()
+        self._body_rate = BodyRate()
+
         self._declare_parameters()
         self._connect()
 
-        # Publishers and services are wired in later phases — leave as stubs.
         self._setup_publishers()
+        self._setup_subscribers()
         self._setup_services()
 
     # ------------------------------------------------------------------
@@ -49,7 +55,9 @@ class SIYINode(Node):
         self.declare_parameter("baud_rate", 115200)
         self.declare_parameter("timeout", 2.0)
         self.declare_parameter("auto_reconnect", False)
-        self.declare_parameter("attitude_stream_hz", 10)
+        # Default 50 Hz: tracking control loops need fresh feedback. Raise
+        # to 100 if the gimbal firmware supports it stably on your unit.
+        self.declare_parameter("attitude_stream_hz", 50)
 
     # ------------------------------------------------------------------
     # Connection
@@ -146,9 +154,22 @@ class SIYINode(Node):
         from siyi_ros2.publishers.laser import LaserPublisher
         from siyi_ros2.publishers.ai_tracking import AITrackingPublisher
 
-        self._att_pub = AttitudePublisher(self, self._client)
+        self._att_pub = AttitudePublisher(self, self._client, state=self._gimbal_state)
         self._laser_pub = LaserPublisher(self, self._client)
         self._ai_pub = AITrackingPublisher(self, self._client)
+
+    def _setup_subscribers(self) -> None:
+        from siyi_ros2.subscribers.aircraft_attitude import AircraftBodyRateSubscriber
+        from siyi_ros2.subscribers.attitude_cmd import AttitudeCommandSubscriber
+        from siyi_ros2.subscribers.rate_cmd import RateCommandSubscriber
+
+        self._rate_sub = RateCommandSubscriber(
+            self, self._bridge, self._client, self._gimbal_state, self._body_rate
+        )
+        self._att_cmd_sub = AttitudeCommandSubscriber(
+            self, self._bridge, self._client, self._rate_sub
+        )
+        self._body_rate_sub = AircraftBodyRateSubscriber(self, self._body_rate)
 
     def _setup_services(self) -> None:
         from siyi_ros2.services.camera import CameraServices
@@ -164,6 +185,12 @@ class SIYINode(Node):
     # ------------------------------------------------------------------
 
     def destroy_node(self) -> None:
+        if hasattr(self, '_rate_sub'):
+            self._rate_sub.destroy()
+        if hasattr(self, '_att_cmd_sub'):
+            self._att_cmd_sub.destroy()
+        if hasattr(self, '_body_rate_sub'):
+            self._body_rate_sub.destroy()
         if hasattr(self, '_att_pub'):
             self._att_pub.destroy()
         if hasattr(self, '_laser_pub'):
@@ -188,10 +215,17 @@ def main(args=None) -> None:
     configure_logging()
     rclpy.init(args=args)
     node = SIYINode()
+    # MultiThreadedExecutor: keeps the rate-command subscriber and watchdog
+    # timer from blocking each other or telemetry publishing. The asyncio
+    # event loop in AsyncBridge handles I/O off the executor thread, so
+    # fire-and-forget dispatches do not contend with rclpy callbacks.
+    executor = MultiThreadedExecutor()
+    executor.add_node(node)
     try:
-        rclpy.spin(node)
+        executor.spin()
     except KeyboardInterrupt:
         pass
     finally:
+        executor.shutdown()
         node.destroy_node()
         rclpy.shutdown()

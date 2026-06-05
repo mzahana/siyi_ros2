@@ -29,6 +29,19 @@ def generate_launch_description():
         DeclareLaunchArgument("jpeg_quality", default_value="80"),
         DeclareLaunchArgument("latency_ms", default_value="0"),
         DeclareLaunchArgument("namespace", default_value=""),
+        DeclareLaunchArgument(
+            "camera_info_url", default_value="",
+            description=(
+                "URL to camera calibration YAML loaded via camera_info_manager. "
+                "Examples: file:///abs/path/calib.yaml  "
+                "or package://siyi_ros2/config/calib.yaml. "
+                "Leave empty to publish uncalibrated CameraInfo."
+            ),
+        ),
+        DeclareLaunchArgument(
+            "camera_name", default_value="siyi_camera",
+            description="Camera name used by camera_info_manager",
+        ),
     ]
 
     gimbal_params = PathJoinSubstitution([pkg_share, "config", "siyi_params.yaml"])
@@ -70,6 +83,8 @@ def generate_launch_description():
                 "image_scale": LaunchConfiguration("image_scale"),
                 "jpeg_quality": LaunchConfiguration("jpeg_quality"),
                 "latency_ms": LaunchConfiguration("latency_ms"),
+                "camera_info_url": LaunchConfiguration("camera_info_url"),
+                "camera_name": LaunchConfiguration("camera_name"),
             },
         ],
         output="screen",

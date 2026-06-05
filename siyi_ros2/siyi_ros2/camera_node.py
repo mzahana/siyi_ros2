@@ -29,6 +29,12 @@ try:
 except Exception:
     _CV_BRIDGE_AVAILABLE = False
 
+try:
+    from camera_info_manager import CameraInfoManager
+    _CAMERA_INFO_MANAGER_AVAILABLE = True
+except ImportError:
+    _CAMERA_INFO_MANAGER_AVAILABLE = False
+
 # BEST_EFFORT: publisher never blocks waiting for subscriber ACKs — critical for
 # high-frequency large image messages where DDS backpressure kills throughput.
 _IMAGE_QOS = QoSProfile(
@@ -59,6 +65,12 @@ class SIYICameraNode(Node):
         jpeg_quality    (int)   JPEG quality for compressed topic (1–100).
         latency_ms      (int)   GStreamer rtspsrc latency buffer in ms (0 = lowest).
         frame_id        (str)   TF frame ID stamped on all messages.
+        camera_name     (str)   Camera name used by camera_info_manager.
+        camera_info_url (str)   URL to camera calibration YAML.
+                                Supported schemes:
+                                  file:///abs/path/to/calib.yaml
+                                  package://pkg_name/config/calib.yaml
+                                Leave empty to publish uncalibrated CameraInfo.
     """
 
     def __init__(self) -> None:
@@ -88,6 +100,8 @@ class SIYICameraNode(Node):
         self._frame_id: str = self.get_parameter("frame_id").value
         self._scale: float = self.get_parameter("image_scale").value
         self._jpeg_quality: int = self.get_parameter("jpeg_quality").value
+
+        self._camera_info: Optional[CameraInfo] = self._load_camera_info()
 
         # Raw/CameraInfo publish pipeline.
         self._latest_frame: Optional[tuple[np.ndarray, rclpy.time.Time]] = None
@@ -139,6 +153,41 @@ class SIYICameraNode(Node):
         self.declare_parameter("jpeg_quality", 80)
         self.declare_parameter("latency_ms", 0)
         self.declare_parameter("frame_id", "siyi_camera")
+        self.declare_parameter("camera_name", "siyi_camera")
+        self.declare_parameter("camera_info_url", "")
+
+    def _load_camera_info(self) -> Optional[CameraInfo]:
+        """Load calibration via camera_info_manager. Returns None when uncalibrated."""
+        url: str = self.get_parameter("camera_info_url").value
+        if not url:
+            return None
+
+        if not _CAMERA_INFO_MANAGER_AVAILABLE:
+            self.get_logger().error(
+                "camera_info_url is set but camera_info_manager is not installed. "
+                "Install it with: sudo apt install ros-<distro>-camera-info-manager"
+            )
+            return None
+
+        camera_name: str = self.get_parameter("camera_name").value
+        try:
+            manager = CameraInfoManager(self, cname=camera_name, url=url)
+            manager.loadCameraInfo()
+            if not manager.isCalibrated():
+                self.get_logger().warning(
+                    f"camera_info_manager loaded '{url}' but reported uncalibrated. "
+                    "Check that the file exists and is a valid ROS2 calibration YAML."
+                )
+                return None
+            info = manager.getCameraInfo()
+            self.get_logger().info(
+                f"Camera calibration loaded from '{url}' "
+                f"({info.width}x{info.height}, model={info.distortion_model})"
+            )
+            return info
+        except Exception as exc:
+            self.get_logger().error(f"Failed to load camera calibration from '{url}': {exc}")
+            return None
 
     def _build_rtsp_url(self) -> str:
         rtsp_url = self.get_parameter("rtsp_url").value
@@ -254,11 +303,14 @@ class SIYICameraNode(Node):
                     )
 
             # --- sensor_msgs/CameraInfo ---
-            info = CameraInfo()
+            if self._camera_info is not None:
+                info = self._camera_info
+            else:
+                info = CameraInfo()
+                info.width = img.shape[1]
+                info.height = img.shape[0]
             info.header.stamp = stamp.to_msg()
             info.header.frame_id = self._frame_id
-            info.width = img.shape[1]
-            info.height = img.shape[0]
             self._info_pub.publish(info)
 
     # ------------------------------------------------------------------

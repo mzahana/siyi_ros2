@@ -12,3 +12,7 @@ siyi_camera_node:
     jpeg_quality: 80           # JPEG quality for compressed topic (1-100)
     latency_ms: 0              # GStreamer rtspsrc latency buffer; 0 = lowest latency
     frame_id: "siyi_camera"
+    camera_name: "siyi_camera" # camera name used by camera_info_manager
+    camera_info_url: ""        # path to calibration YAML, e.g.:
+                               #   file:///home/user/calib/a8_calib.yaml
+                               #   package://siyi_ros2/config/a8_calib.yaml

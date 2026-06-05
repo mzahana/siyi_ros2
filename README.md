@@ -214,6 +214,75 @@ SIYI_LOG_LEVEL=DEBUG SIYI_PROTOCOL_TRACE=1 GST_DEBUG=2 \
 | `image_encoding` | string | `bgr8` | ROS2 image encoding |
 | `publish_compressed` | bool | `true` | Publish CompressedImage topic |
 | `frame_id` | string | `siyi_camera` | Camera frame in TF tree |
+| `camera_name` | string | `siyi_camera` | Camera name used by `camera_info_manager` |
+| `camera_info_url` | string | `""` | URL to calibration YAML (see [Camera Calibration](#camera-calibration)) |
+
+---
+
+## Camera Calibration
+
+The camera node uses the standard ROS2 [`camera_info_manager`](https://github.com/ros-perception/camera_info_manager_py) package to load intrinsic calibration data from a YAML file and publish it on `/siyi/camera_info`.
+
+### Prerequisites
+
+```bash
+# ROS2 Jazzy
+sudo apt install ros-jazzy-camera-info-manager
+
+# ROS2 Humble
+sudo apt install ros-humble-camera-info-manager
+```
+
+### Calibration YAML format
+
+The YAML must follow the standard ROS2 calibration format produced by the `camera_calibration` package.
+A template is provided at [config/camera_calibration_example.yaml](siyi_ros2/config/camera_calibration_example.yaml).
+
+To run calibration against the live stream:
+
+```bash
+ros2 run camera_calibration cameracalibrator \
+    --size 8x6 --square 0.025 \
+    image:=/siyi/image_raw camera:=/siyi
+```
+
+Save the result to a file (e.g. `~/calibration/a8_calib.yaml`).
+
+### Loading calibration at launch
+
+**Via launch argument (recommended):**
+
+```bash
+ros2 launch siyi_ros2 siyi_full.launch.py \
+    host:=192.168.144.25 \
+    camera_model:=a8 \
+    camera_info_url:=file:///home/user/calibration/a8_calib.yaml
+```
+
+**Via the config YAML** ([config/camera_params.yaml](siyi_ros2/config/camera_params.yaml)):
+
+```yaml
+siyi_camera_node:
+  ros__parameters:
+    camera_name: "siyi_a8"
+    camera_info_url: "file:///home/user/calibration/a8_calib.yaml"
+```
+
+**Using a file bundled inside the package:**
+
+```bash
+camera_info_url:=package://siyi_ros2/config/a8_calib.yaml
+```
+
+### URL schemes
+
+| Scheme | Example |
+|--------|---------|
+| Absolute file path | `file:///home/user/calib/a8.yaml` |
+| Package-relative path | `package://siyi_ros2/config/a8.yaml` |
+| Empty (no calibration) | `""` (default) — publishes width/height only |
+
+When `camera_info_url` is empty the node still publishes `CameraInfo` on every frame, but only `header`, `width`, and `height` are populated (all matrix fields are zero). This is the correct behaviour for an uncalibrated camera in ROS2.
 
 ---
 

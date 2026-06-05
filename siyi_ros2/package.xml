@@ -14,6 +14,7 @@
   <depend>siyi_msgs</depend>
   <depend>python3-opencv</depend>
   <depend>python3-cv-bridge</depend>
+  <depend>camera_info_manager</depend>
 
   <buildtool_depend>ament_python</buildtool_depend>
 

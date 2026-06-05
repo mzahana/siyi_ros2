@@ -73,6 +73,60 @@ unsub = client.on_ai_tracking(cb)        # AITrackingTarget pushed when tracking
 await client.request_gimbal_stream(GimbalDataType.ATTITUDE, DataStreamFreq.FREQ_10HZ)
 ```
 
+## Dynamic TF broadcasting
+
+`siyi_node` can publish a dynamic `tf2` transform that encodes the gimbal's
+live orientation.  It is **disabled by default** (`publish_tf: false`).
+
+### How it works
+
+On every attitude callback the `AttitudePublisher` converts the SIYI
+yaw/pitch/roll (degrees, ZYX aerospace convention) to a quaternion and
+broadcasts:
+
+```
+tf_parent_frame  →  tf_child_frame
+  (e.g. base_link)     (e.g. siyi_gimbal)
+```
+
+The translation component is always zero — the transform is pure rotation.
+The physical offset of the gimbal mount on the vehicle should be expressed
+separately with a `static_transform_publisher` node:
+
+```bash
+ros2 run tf2_ros static_transform_publisher \
+  --x 0.1 --y 0.0 --z -0.05 \
+  --frame-id base_link --child-frame-id siyi_gimbal_mount
+```
+
+Then set `tf_parent_frame: "siyi_gimbal_mount"` in your params file so the
+dynamic TF starts from the mount frame.
+
+### Enabling via config file
+
+In `config/siyi_params.yaml`:
+
+```yaml
+siyi_node:
+  ros__parameters:
+    publish_tf: true
+    tf_parent_frame: "base_link"   # change to your vehicle body frame
+    tf_child_frame: "siyi_gimbal"
+```
+
+### Enabling via launch argument
+
+```bash
+ros2 launch siyi_ros2 siyi.launch.py publish_tf:=true
+ros2 launch siyi_ros2 siyi.launch.py publish_tf:=true tf_parent_frame:=body tf_child_frame:=camera_gimbal
+```
+
+### Verifying
+
+```bash
+ros2 run tf2_tools tf2_echo base_link siyi_gimbal
+```
+
 ## Threading model
 
 ```

@@ -58,6 +58,9 @@ class SIYINode(Node):
         # Default 50 Hz: tracking control loops need fresh feedback. Raise
         # to 100 if the gimbal firmware supports it stably on your unit.
         self.declare_parameter("attitude_stream_hz", 50)
+        self.declare_parameter("publish_tf", False)
+        self.declare_parameter("tf_parent_frame", "base_link")
+        self.declare_parameter("tf_child_frame", "siyi_gimbal")
 
     # ------------------------------------------------------------------
     # Connection
@@ -154,7 +157,22 @@ class SIYINode(Node):
         from siyi_ros2.publishers.laser import LaserPublisher
         from siyi_ros2.publishers.ai_tracking import AITrackingPublisher
 
-        self._att_pub = AttitudePublisher(self, self._client, state=self._gimbal_state)
+        publish_tf = self.get_parameter("publish_tf").get_parameter_value().bool_value
+        tf_parent_frame = (
+            self.get_parameter("tf_parent_frame").get_parameter_value().string_value
+        )
+        tf_child_frame = (
+            self.get_parameter("tf_child_frame").get_parameter_value().string_value
+        )
+
+        self._att_pub = AttitudePublisher(
+            self,
+            self._client,
+            state=self._gimbal_state,
+            publish_tf=publish_tf,
+            tf_parent_frame=tf_parent_frame,
+            tf_child_frame=tf_child_frame,
+        )
         self._laser_pub = LaserPublisher(self, self._client)
         self._ai_pub = AITrackingPublisher(self, self._client)
 

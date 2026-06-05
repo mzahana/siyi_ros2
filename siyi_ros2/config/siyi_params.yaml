@@ -8,3 +8,14 @@ siyi_node:
     timeout: 2.0
     auto_reconnect: false
     attitude_stream_hz: 10
+
+    # --- TF broadcasting ---
+    # Set publish_tf: true to broadcast a dynamic transform on every attitude
+    # update.  The transform expresses the gimbal orientation relative to
+    # tf_parent_frame (typically the vehicle body frame).
+    # The translation component is always zero here; use a separate
+    # static_transform_publisher to express the gimbal mount offset on the
+    # vehicle.
+    publish_tf: false
+    tf_parent_frame: "base_link"   # parent frame (vehicle body)
+    tf_child_frame: "siyi_gimbal"  # gimbal frame (matches /siyi/attitude frame_id)

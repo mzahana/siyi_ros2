@@ -18,6 +18,15 @@ def generate_launch_description():
         DeclareLaunchArgument("transport", default_value="udp"),
         DeclareLaunchArgument("attitude_stream_hz", default_value="10"),
         DeclareLaunchArgument("auto_reconnect", default_value="false"),
+        DeclareLaunchArgument(
+            "publish_tf", default_value="false",
+            description="Broadcast dynamic TF from tf_parent_frame to tf_child_frame"),
+        DeclareLaunchArgument(
+            "tf_parent_frame", default_value="base_link",
+            description="Parent TF frame (vehicle body frame)"),
+        DeclareLaunchArgument(
+            "tf_child_frame", default_value="siyi_gimbal",
+            description="Child TF frame (gimbal frame)"),
         DeclareLaunchArgument("camera_model", default_value="zt30",
                               description="Camera model key for RTSP URL"),
         DeclareLaunchArgument("stream_index", default_value="0"),
@@ -60,6 +69,9 @@ def generate_launch_description():
                 "transport": LaunchConfiguration("transport"),
                 "attitude_stream_hz": LaunchConfiguration("attitude_stream_hz"),
                 "auto_reconnect": LaunchConfiguration("auto_reconnect"),
+                "publish_tf": LaunchConfiguration("publish_tf"),
+                "tf_parent_frame": LaunchConfiguration("tf_parent_frame"),
+                "tf_child_frame": LaunchConfiguration("tf_child_frame"),
             },
         ],
         output="screen",

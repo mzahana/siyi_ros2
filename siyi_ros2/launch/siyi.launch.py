@@ -28,6 +28,15 @@ def generate_launch_description():
                               description="Auto-reconnect on failure"),
         DeclareLaunchArgument("namespace", default_value="",
                               description="Node namespace"),
+        DeclareLaunchArgument(
+            "publish_tf", default_value="false",
+            description="Broadcast dynamic TF from tf_parent_frame to tf_child_frame"),
+        DeclareLaunchArgument(
+            "tf_parent_frame", default_value="base_link",
+            description="Parent TF frame (vehicle body frame)"),
+        DeclareLaunchArgument(
+            "tf_child_frame", default_value="siyi_gimbal",
+            description="Child TF frame (gimbal frame)"),
     ]
 
     params_file = PathJoinSubstitution([pkg_share, "config", "siyi_params.yaml"])
@@ -47,6 +56,9 @@ def generate_launch_description():
                 "baud_rate": LaunchConfiguration("baud_rate"),
                 "attitude_stream_hz": LaunchConfiguration("attitude_stream_hz"),
                 "auto_reconnect": LaunchConfiguration("auto_reconnect"),
+                "publish_tf": LaunchConfiguration("publish_tf"),
+                "tf_parent_frame": LaunchConfiguration("tf_parent_frame"),
+                "tf_child_frame": LaunchConfiguration("tf_child_frame"),
             },
         ],
         output="screen",

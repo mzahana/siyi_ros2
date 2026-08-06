@@ -230,7 +230,7 @@ class SIYICameraNode(Node):
         }
         backend = backend_map.get(backend_str, StreamBackend.GSTREAMER)
 
-        config = StreamConfig(rtsp_url=url, backend=backend, latency_ms=latency_ms)
+        config = StreamConfig(rtsp_url=url, backend=backend, latency_ms=latency_ms, codec="h265")
         self._stream = SIYIStream(config)
         self._unsub = self._stream.on_frame(self._on_frame)
 

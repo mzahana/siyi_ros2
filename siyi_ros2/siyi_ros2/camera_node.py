@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import time
 from typing import Optional
 
 import cv2
@@ -34,6 +35,10 @@ try:
     _CAMERA_INFO_MANAGER_AVAILABLE = True
 except ImportError:
     _CAMERA_INFO_MANAGER_AVAILABLE = False
+
+# No frame for this long means the stream is down. Comfortably above the
+# SDK's 5s stall detector so the SDK gets a chance to reconnect first.
+_STREAM_STALE_SEC = 8.0
 
 # BEST_EFFORT: publisher never blocks waiting for subscriber ACKs — critical for
 # high-frequency large image messages where DDS backpressure kills throughput.
@@ -130,7 +135,13 @@ class SIYICameraNode(Node):
         else:
             self._comp_thread = None
 
+        self._last_frame_wall: float = 0.0
+        self._stream_started_at = time.monotonic()
+        self._stream_was_stale = False
         self._start_stream()
+        # Surfaces stream death in the ROS log. The SDK reconnects on its
+        # own; without this the node would go silent with no explanation.
+        self._watchdog_timer = self.create_timer(2.0, self._watchdog)
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -142,7 +153,7 @@ class SIYICameraNode(Node):
 
     def _declare_parameters(self) -> None:
         self.declare_parameter("rtsp_url", "")
-        self.declare_parameter("camera_model", "zt30")
+        self.declare_parameter("camera_model", "a8")
         self.declare_parameter("host", "192.168.144.25")
         self.declare_parameter("stream_index", 0)
         self.declare_parameter("backend", "gstreamer")
@@ -152,6 +163,10 @@ class SIYICameraNode(Node):
         self.declare_parameter("image_scale", 1.0)
         self.declare_parameter("jpeg_quality", 80)
         self.declare_parameter("latency_ms", 0)
+        # RTSP transport: "udp" or "tcp". UDP is the default because RTP-over-TCP
+        # head-of-line blocks on a lossy link — a stall longer than rtspsrc's
+        # 20s tcp-timeout kills the session, whereas UDP just drops packets.
+        self.declare_parameter("transport", "udp")
         self.declare_parameter("frame_id", "siyi_camera")
         self.declare_parameter("camera_name", "siyi_camera")
         self.declare_parameter("camera_info_url", "")
@@ -230,14 +245,45 @@ class SIYICameraNode(Node):
         }
         backend = backend_map.get(backend_str, StreamBackend.GSTREAMER)
 
-        config = StreamConfig(rtsp_url=url, backend=backend, latency_ms=latency_ms, codec="h265")
+        transport = self.get_parameter("transport").value
+        if transport not in ("udp", "tcp"):
+            self.get_logger().warning(
+                f"invalid transport {transport!r}, falling back to 'udp'"
+            )
+            transport = "udp"
+
+        config = StreamConfig(
+            rtsp_url=url,
+            backend=backend,
+            latency_ms=latency_ms,
+            codec="h265",
+            transport=transport,
+        )
         self._stream = SIYIStream(config)
         self._unsub = self._stream.on_frame(self._on_frame)
 
         asyncio.run_coroutine_threadsafe(self._stream.start(), self._loop)
         self.get_logger().info(
-            f"SIYI camera stream started: {url} [backend={backend_str}, latency_ms={latency_ms}]"
+            f"SIYI camera stream started: {url} [backend={backend_str}, transport={transport}, latency_ms={latency_ms}]"
         )
+
+    def _watchdog(self) -> None:
+        """Log when the video stream stops and when it comes back."""
+        now = time.monotonic()
+        ref = self._last_frame_wall or self._stream_started_at
+        age = now - ref
+
+        if age > _STREAM_STALE_SEC:
+            if not self._stream_was_stale:
+                self._stream_was_stale = True
+                what = "never started" if not self._last_frame_wall else "stopped"
+                self.get_logger().error(
+                    f"SIYI video stream {what} — no frame for {age:.1f}s. "
+                    "SDK is attempting to reconnect."
+                )
+        elif self._stream_was_stale:
+            self._stream_was_stale = False
+            self.get_logger().info("SIYI video stream recovered.")
 
     # ------------------------------------------------------------------
     # Frame callback — called from asyncio thread; must be fast/non-blocking
@@ -250,6 +296,8 @@ class SIYICameraNode(Node):
             return
 
         stamp = self.get_clock().now()
+
+        self._last_frame_wall = time.monotonic()
 
         with self._raw_lock:
             self._latest_frame = (img, stamp)

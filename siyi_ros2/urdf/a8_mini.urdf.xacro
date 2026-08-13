@@ -1,0 +1,209 @@
+<?xml version="1.0"?>
+<!--
+  URDF description for the SIYI A8 mini gimbal camera.
+
+  Frame chain (3-DOF kinematic gimbal)
+  ────────────────────────────────────
+  gimbal_base  (attachment point on vehicle; ROS convention: x-forward, y-left, z-up)
+      │  revolute joint: gimbal_yaw   (Z-axis, pan left/right)
+      └── gimbal_yaw_link
+              │  revolute joint: gimbal_roll   (X-axis, roll)
+              └── gimbal_roll_link
+                      │  revolute joint: gimbal_pitch  (Y-axis, tilt up/down)
+                      └── gimbal_pitch_link
+                              │  fixed joint
+                              └── camera_link   (ROS convention: x-forward, y-left, z-up)
+                                      │  fixed joint (rpy = -π/2, 0, -π/2)
+                                      └── camera_optical_link  (z-forward out of lens,
+                                                                 x-right, y-down)
+
+  Joint states are driven by sensor_msgs/JointState messages published
+  by AttitudePublisher.  robot_state_publisher turns those into /tf.
+
+  Physical notes (SIYI A8 mini datasheet):
+    Body:  ~60 × 60 × 83 mm
+    Mass:  ~56 g
+    Motor order (base→camera): yaw → roll → pitch
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="siyi_a8_mini">
+
+  <!-- ──────────────────── colours ──────────────────── -->
+  <material name="dark_grey">
+    <color rgba="0.2 0.2 0.2 1.0"/>
+  </material>
+  <material name="black">
+    <color rgba="0.05 0.05 0.05 1.0"/>
+  </material>
+
+  <!-- ══════════════════════════════════════════════════
+       LINKS
+       ══════════════════════════════════════════════════ -->
+
+  <!-- 1. gimbal_base – fixed attachment / mounting point -->
+  <link name="gimbal_base">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 -1.5708"/>
+      <geometry>
+        <!--
+          The STL was exported from CAD in millimetres; scale to metres.
+          Adjust the rpy if the model is oriented differently in the CAD file.
+        -->
+        <mesh filename="package://siyi_ros2/meshes/a8_mini_gimbal.stl"
+              scale="1.0 1.0 1.0"/>
+      </geometry>
+      <material name="dark_grey"/>
+    </visual>
+    <collision>
+      <!-- Approximate box collision for efficiency -->
+      <origin xyz="0 0 -0.0415" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.060 0.060 0.083"/>
+      </geometry>
+    </collision>
+    <inertial>
+
+      <mass value="0.095"/>
+      <origin xyz="0 0 -0.0415" rpy="0 0 0"/>
+      <inertia
+        ixx="2.04e-5" ixy="0" ixz="0"
+        iyy="2.04e-5" iyz="0"
+        izz="2.24e-5"/>
+    </inertial>
+  </link>
+
+  <!-- ── Intermediate gimbal links (massless, for kinematic chain) ── -->
+
+  <!-- 2. gimbal_yaw_link: result of yaw rotation about Z -->
+  <link name="gimbal_yaw_link">
+    <inertial>
+      <mass value="0.001"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <inertia ixx="1e-9" ixy="0" ixz="0"
+               iyy="1e-9" iyz="0"
+               izz="1e-9"/>
+    </inertial>
+  </link>
+
+  <!-- 3. gimbal_pitch_link: result of pitch rotation about Y -->
+  <link name="gimbal_pitch_link">
+    <inertial>
+      <mass value="0.001"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <inertia ixx="1e-9" ixy="0" ixz="0"
+               iyy="1e-9" iyz="0"
+               izz="1e-9"/>
+    </inertial>
+  </link>
+
+  <!-- 4. gimbal_roll_link: result of roll rotation about X -->
+  <link name="gimbal_roll_link">
+    <inertial>
+      <mass value="0.001"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <inertia ixx="1e-9" ixy="0" ixz="0"
+               iyy="1e-9" iyz="0"
+               izz="1e-9"/>
+    </inertial>
+  </link>
+
+  <!-- 5. camera_link – ROS body convention (x-forward boresight, y-left, z-up) -->
+  <link name="camera_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><sphere radius="0.005"/></geometry>
+      <material name="black"/>
+    </visual>
+    <inertial>
+      <mass value="0.001"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <inertia ixx="1e-9" ixy="0" ixz="0"
+               iyy="1e-9" iyz="0"
+               izz="1e-9"/>
+    </inertial>
+  </link>
+
+  <!-- 6. camera_optical_link – optical convention (z-forward, x-right, y-down) -->
+  <link name="camera_optical_link">
+    <inertial>
+      <mass value="0.001"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <inertia ixx="1e-9" ixy="0" ixz="0"
+               iyy="1e-9" iyz="0"
+               izz="1e-9"/>
+    </inertial>
+  </link>
+
+  <!-- ══════════════════════════════════════════════════
+       JOINTS
+       ══════════════════════════════════════════════════ -->
+
+  <!--
+    Joint 1 (revolute): gimbal_base → gimbal_yaw_link
+    ─────────────────────────────────────────────────
+    The YAW motor axis sits at the gimbal mount plate (top of the body).
+    Its rotation axis is Z (vertical – up when drone is level).
+  -->
+  <joint name="gimbal_yaw" type="revolute">
+    <parent link="gimbal_base"/>
+    <child  link="gimbal_yaw_link"/>
+    <!-- Drop down from the mount to the level of the camera lens -->
+    <origin xyz="0.0 0.0 -0.011" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-2.7925" upper="2.7925" effort="10.0" velocity="3.14"/>
+  </joint>
+
+  <!--
+    Joint 2 (revolute): gimbal_yaw_link → gimbal_roll_link
+    ─────────────────────────────────────────────────────────
+    The ROLL motor axis sits on the side arm that hangs below the yaw motor.
+  -->
+  <joint name="gimbal_roll" type="revolute">
+    <parent link="gimbal_yaw_link"/>
+    <child  link="gimbal_roll_link"/>
+    <!-- Push forward from the yaw axis to the camera lens -->
+    <origin xyz="-0.018 0.0 -0.027" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-0.5236" upper="0.5236" effort="10.0" velocity="3.14"/>
+  </joint>
+
+  <!--
+    Joint 3 (revolute): gimbal_roll_link → gimbal_pitch_link
+    ──────────────────────────────────────────────────────────
+    The PITCH motor sits on the roll arm, closest to the camera.
+  -->
+  <joint name="gimbal_pitch" type="revolute">
+    <parent link="gimbal_roll_link"/>
+    <child  link="gimbal_pitch_link"/>
+    <origin xyz="0.027 -0.025 0.001" rpy="0 0 0"/>
+    <axis xyz="0 -1 0"/>
+    <limit lower="-2.3562" upper="0.7854" effort="10.0" velocity="3.14"/>
+  </joint>
+
+  <!--
+    Joint 4 (fixed): gimbal_pitch_link → camera_link
+    ──────────────────────────────────────────────────
+    Coincident with pitch frame.
+  -->
+  <joint name="gimbal_pitch_to_camera_link" type="fixed">
+    <parent link="gimbal_pitch_link"/>
+    <child  link="camera_link"/>
+    <!--<origin xyz="0.0 0.0 0.0" rpy="0 0 0"/>-->  
+    <origin xyz="0.013 0.025 0.001" rpy="0 0 0"/>
+  </joint>
+
+  <!--
+    Joint 5 (fixed): camera_link → camera_optical_link
+    Standard ROS optical convention:
+      optical z = ROS x (boresight/forward)
+      optical x = ROS -y (right)
+      optical y = ROS -z (down)
+    rpy = (-π/2, 0, -π/2)
+  -->
+  <joint name="camera_link_to_optical" type="fixed">
+    <parent link="camera_link"/>
+    <child  link="camera_optical_link"/>
+    <origin xyz="0 0 0" rpy="-1.5707963 0 -1.5707963"/>
+
+  </joint>
+
+</robot>

@@ -311,6 +311,85 @@ ros2 run rqt_image_view rqt_image_view /siyi/image_raw
 
 ---
 
+## TF Frames — `gimbal_tf_bridge`
+
+The `gimbal_tf_bridge` node bridges live gimbal attitude into the ROS2 TF tree, allowing any TF-aware tool (RViz2, MoveIt, navigation stacks) to track the real-time gimbal orientation.
+
+### How it works
+
+```
+siyi_node
+    │
+    ▼  /siyi/attitude  (siyi_msgs/GimbalAttitude, degrees)
+gimbal_tf_bridge
+    │
+    ▼  /joint_states   (sensor_msgs/JointState, radians)
+robot_state_publisher
+    │
+    ▼  /tf             (dynamic revolute-joint transforms)
+```
+
+`gimbal_tf_bridge` subscribes to `/siyi/attitude`, converts the three gimbal angles from degrees to radians, and re-publishes them as a `sensor_msgs/JointState` message on `/joint_states`.  
+`robot_state_publisher` picks these up and broadcasts the corresponding dynamic TF transforms for the three revolute joints defined in the URDF:
+
+| Joint name | Axis | Description |
+|------------|------|-------------|
+| `gimbal_yaw` | Z | Pan (azimuth) |
+| `gimbal_pitch` | Y | Tilt (elevation) |
+| `gimbal_roll` | X | Roll |
+
+The static TF chain (`gimbal_base → camera_link → camera_optical_link`) is provided by the bundled URDF/xacro (`urdf/a8_mini.urdf.xacro`).
+
+### Launch — `siyi_a8_tf.launch.py`
+
+This launch file starts the full TF stack alongside the SIYI node:
+
+- **`robot_state_publisher`** — processes the URDF and broadcasts static + dynamic TF transforms
+- **`static_transform_publisher`** — attaches `gimbal_base` to the vehicle body frame
+- **`gimbal_tf_bridge`** — converts `/siyi/attitude` → `/joint_states`
+- **RViz2** (optional) — pre-configured display with `RobotModel`, `TF`, and `fixed frame = gimbal_base`
+
+**Basic usage (attach to `base_link`):**
+
+```bash
+ros2 launch siyi_ros2 siyi_a8_tf.launch.py
+```
+
+**Custom parent frame and mounting offset:**
+
+```bash
+ros2 launch siyi_ros2 siyi_a8_tf.launch.py \
+    parent_frame:=base_link \
+    x:=0.1 y:=0.0 z:=0.05 \
+    roll:=0.0 pitch:=0.0 yaw:=0.0
+```
+
+**Without RViz2:**
+
+```bash
+ros2 launch siyi_ros2 siyi_a8_tf.launch.py rviz:=false
+```
+
+### Launch arguments
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `parent_frame` | `base_link` | Vehicle body frame to attach `gimbal_base` to |
+| `x` | `0.0` | X offset of `gimbal_base` w.r.t. `parent_frame` (m) |
+| `y` | `0.0` | Y offset of `gimbal_base` w.r.t. `parent_frame` (m) |
+| `z` | `0.0` | Z offset of `gimbal_base` w.r.t. `parent_frame` (m) |
+| `roll` | `0.0` | Roll of `gimbal_base` w.r.t. `parent_frame` (rad) |
+| `pitch` | `0.0` | Pitch of `gimbal_base` w.r.t. `parent_frame` (rad) |
+| `yaw` | `0.0` | Yaw of `gimbal_base` w.r.t. `parent_frame` (rad) |
+| `urdf_file` | `urdf/a8_mini.urdf.xacro` | Path to the URDF/xacro file |
+| `namespace` | `""` | Optional node namespace |
+| `rviz` | `true` | Launch RViz2 with pre-configured display |
+
+> **Note**: `gimbal_tf_bridge` requires `siyi_node` to be running and publishing `/siyi/attitude`.  
+> Run `siyi.launch.py` or `siyi_full.launch.py` in a separate terminal (or compose them into a single launch file) before or alongside `siyi_a8_tf.launch.py`.
+
+---
+
 ## Related Package
 
 Custom message and service definitions live in a companion package:

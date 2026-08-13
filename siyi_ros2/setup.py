@@ -15,7 +15,11 @@ setup(
         (os.path.join('share', package_name, 'launch'),
             glob('launch/*.launch.py')),
         (os.path.join('share', package_name, 'config'),
-            glob('config/*.yaml')),
+            glob('config/*.yaml') + glob('config/*.rviz')),
+        (os.path.join('share', package_name, 'urdf'),
+            glob('urdf/*.urdf') + glob('urdf/*.urdf.xacro') + glob('urdf/*.xacro')),
+        (os.path.join('share', package_name, 'meshes'),
+            glob('meshes/*.stl') + glob('meshes/*.dae') + glob('meshes/*.obj')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -28,6 +32,8 @@ setup(
         'console_scripts': [
             'siyi_node = siyi_ros2.siyi_node:main',
             'siyi_camera_node = siyi_ros2.camera_node:main',
+            'gimbal_tf_bridge = siyi_ros2.gimbal_tf_bridge:main',
+            'siyi_attitude_sim = siyi_ros2.siyi_attitude_sim:main',
         ],
     },
 )

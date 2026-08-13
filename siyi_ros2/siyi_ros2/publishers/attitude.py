@@ -1,4 +1,5 @@
-"""Publishes GimbalAttitude messages and optionally a dynamic TF transform."""
+"""Publishes GimbalAttitude messages, JointState for the 3-DOF gimbal URDF,
+and optionally a legacy dynamic TF transform."""
 
 from __future__ import annotations
 
@@ -7,6 +8,7 @@ import math
 from geometry_msgs.msg import TransformStamped
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
+from sensor_msgs.msg import JointState
 from siyi_msgs.msg import GimbalAttitude as GimbalAttitudeMsg
 from siyi_sdk.models import GimbalAttitude
 from siyi_sdk.transport.base import Unsubscribe
@@ -46,6 +48,10 @@ class AttitudePublisher:
     """
 
     TOPIC = "/siyi/attitude"
+    JOINT_STATE_TOPIC = "/joint_states"
+
+    # Names must match the joint names in a8_mini.urdf.xacro
+    _JOINT_NAMES = ["gimbal_yaw", "gimbal_pitch", "gimbal_roll"]
 
     def __init__(
         self,
@@ -66,6 +72,15 @@ class AttitudePublisher:
             GimbalAttitudeMsg, self.TOPIC, qos_profile_sensor_data
         )
 
+        # JointState publisher – robot_state_publisher subscribes to this
+        # and broadcasts the dynamic /tf for gimbal_yaw/pitch/roll joints.
+        self._joint_pub = node.create_publisher(
+            JointState, self.JOINT_STATE_TOPIC, qos_profile_sensor_data
+        )
+        node.get_logger().info(
+            f"Gimbal JointState publisher active on '{self.JOINT_STATE_TOPIC}'"
+        )
+
         if self._publish_tf:
             self._tf_broadcaster = TransformBroadcaster(node)
             node.get_logger().info(
@@ -76,9 +91,11 @@ class AttitudePublisher:
 
     def _on_attitude(self, att: GimbalAttitude) -> None:
         now = self._node.get_clock().now()
+        stamp = now.to_msg()
 
+        # ―― GimbalAttitude message ――――――――――――――――――――――――――――――
         msg = GimbalAttitudeMsg()
-        msg.header.stamp = now.to_msg()
+        msg.header.stamp = stamp
         msg.header.frame_id = self._tf_child_frame
         msg.yaw_deg = att.yaw_deg
         msg.pitch_deg = att.pitch_deg
@@ -91,8 +108,28 @@ class AttitudePublisher:
         if self._state is not None:
             self._state.update(att.yaw_deg, att.pitch_deg, att.roll_deg, now.nanoseconds)
 
+        # ―― JointState ―――――――――――――――――――――――――――――――――――――――
+        # robot_state_publisher reads this and broadcasts dynamic /tf for
+        # gimbal_yaw, gimbal_pitch, gimbal_roll joints from the URDF.
+        js = JointState()
+        js.header.stamp = stamp
+        js.name = self._JOINT_NAMES
+        js.position = [
+            math.radians(att.yaw_deg),
+            math.radians(att.pitch_deg),
+            math.radians(att.roll_deg),
+        ]
+        js.velocity = [
+            math.radians(att.yaw_rate_dps),
+            math.radians(att.pitch_rate_dps),
+            math.radians(att.roll_rate_dps),
+        ]
+        js.effort = []  # not provided by SIYI SDK
+        self._joint_pub.publish(js)
+
+        # ―― Legacy single-TF broadcast (optional) ――――――――――――――――
         if self._publish_tf:
-            self._broadcast_tf(att, now.to_msg())
+            self._broadcast_tf(att, stamp)
 
     def _broadcast_tf(self, att: GimbalAttitude, stamp) -> None:
         yaw_rad = math.radians(att.yaw_deg)
@@ -115,3 +152,4 @@ class AttitudePublisher:
     def destroy(self) -> None:
         self._unsub()
         self._node.destroy_publisher(self._pub)
+        self._node.destroy_publisher(self._joint_pub)

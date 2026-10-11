@@ -238,7 +238,7 @@ await client.close()
 attitude   = await client.get_gimbal_attitude()   # GimbalAttitude: yaw_deg, pitch_deg, roll_deg, rates
 ack        = await client.set_attitude(yaw_deg, pitch_deg)  # SetAttitudeAck
 await client.rotate(yaw_speed_int, pitch_speed_int)         # -100..100
-await client.one_key_centering()                            # CenteringAction.CENTER
+await client.one_key_centering(CenteringAction.ONE_KEY_CENTER)  # code 1; the default (CENTER, code 3) does not level an A8 mini
 zoom       = await client.get_current_zoom()                # float
 await client.absolute_zoom(zoom_level: float)
 await client.auto_focus(touch_x, touch_y)                  # screen coords 0–100

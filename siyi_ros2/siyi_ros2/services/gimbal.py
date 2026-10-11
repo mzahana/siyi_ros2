@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from siyi_msgs.srv import CenterGimbal, SetGimbalAttitude, SetGimbalMode, SetGimbalSpeed
-from siyi_sdk.models import GimbalMotionMode
+from siyi_sdk.models import CenteringAction, GimbalMotionMode
 
 
 class GimbalServices:
@@ -81,7 +81,10 @@ class GimbalServices:
     ) -> CenterGimbal.Response:
         try:
             self._bridge.run_async(
-                self._client.one_key_centering(),
+                # Code 1, explicitly. The SDK's default, CenteringAction.CENTER,
+                # is code 3: the A8 mini acks it (sta=1) but does not level the
+                # camera from pitch -90 (bench, 2026-10-11).
+                self._client.one_key_centering(CenteringAction.ONE_KEY_CENTER),
                 timeout=5.0,
             )
             response.success = True
